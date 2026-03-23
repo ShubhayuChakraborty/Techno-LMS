@@ -14,13 +14,23 @@ const asyncHandler = require("../utils/asyncHandler");
  */
 const requestBorrow = asyncHandler(async (req, res) => {
   const { bookId } = req.body;
-  const { code, expiresAt } = await borrowCodeService.createRequest(
-    req.user.id,
-    bookId,
-  );
+  const request = await borrowCodeService.createRequest(req.user.id, bookId);
   res
     .status(201)
-    .json(new ApiResponse(201, { code, expiresAt }, "Borrow request created."));
+    .json(new ApiResponse(201, request, "Borrow request submitted."));
+});
+
+const listRequests = asyncHandler(async (req, res) => {
+  const data = await borrowCodeService.listRequests(req.query);
+  res.status(200).json(new ApiResponse(200, data));
+});
+
+const getNotifications = asyncHandler(async (req, res) => {
+  const data = await borrowCodeService.getNotificationsForUser(
+    req.user.id,
+    req.user.role,
+  );
+  res.status(200).json(new ApiResponse(200, data));
 });
 
 // ─── Librarian ────────────────────────────────────────────────────────────────
@@ -54,6 +64,24 @@ const confirmBorrow = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, { borrowId, dueDate }, "Borrow confirmed."));
 });
 
+const approveRequest = asyncHandler(async (req, res) => {
+  const { borrowDays } = req.body;
+  const result = await borrowCodeService.approveRequest(
+    req.params.id,
+    Number(borrowDays || 14),
+  );
+  res
+    .status(200)
+    .json(new ApiResponse(200, result, "Borrow request approved."));
+});
+
+const declineRequest = asyncHandler(async (req, res) => {
+  const result = await borrowCodeService.declineRequest(req.params.id);
+  res
+    .status(200)
+    .json(new ApiResponse(200, result, "Borrow request declined."));
+});
+
 /**
  * POST /api/v1/borrow/return
  * Auth: librarian | admin
@@ -69,4 +97,13 @@ const returnBorrow = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, result, "Book returned successfully."));
 });
 
-module.exports = { requestBorrow, getRequest, confirmBorrow, returnBorrow };
+module.exports = {
+  requestBorrow,
+  listRequests,
+  getNotifications,
+  getRequest,
+  confirmBorrow,
+  approveRequest,
+  declineRequest,
+  returnBorrow,
+};

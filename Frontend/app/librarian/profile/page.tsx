@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { BookOpen } from "lucide-react";
 import ProfileBase from "@/components/profile/ProfileBase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,14 +12,6 @@ export default function LibrarianProfilePage() {
   const [phone, setPhone] = useState(librarian?.phone ?? "");
   const [department, setDepartment] = useState(librarian?.department ?? "");
   const [address, setAddress] = useState(librarian?.address ?? "");
-
-  // Sync local state when user context refreshes after a save
-  useEffect(() => {
-    if (librarian?.phone !== undefined) setPhone(librarian.phone ?? "");
-    if (librarian?.department !== undefined)
-      setDepartment(librarian.department ?? "");
-    if (librarian?.address !== undefined) setAddress(librarian.address ?? "");
-  }, [librarian?.phone, librarian?.department, librarian?.address]);
 
   if (!user) return null;
 

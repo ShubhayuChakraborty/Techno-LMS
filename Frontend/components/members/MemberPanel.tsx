@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import {
   X,
   Mail,
@@ -14,6 +14,7 @@ import { Member, type BorrowRecord } from "@/lib/mockData";
 import { apiGetMemberBorrows } from "@/lib/api";
 import { MemberStatusBadge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
+import { useFetch } from "@/lib/useFetch";
 
 interface Props {
   member: Member | null;
@@ -28,18 +29,13 @@ export default function MemberPanel({
   onEdit,
   onDeactivate,
 }: Props) {
-  const [borrows, setBorrows] = useState<BorrowRecord[]>([]);
-  const [borrowsLoading, setBorrowsLoading] = useState(false);
-
-  useEffect(() => {
-    if (!member) return;
-    setBorrows([]);
-    setBorrowsLoading(true);
-    apiGetMemberBorrows(member.id)
-      .then(setBorrows)
-      .catch(() => setBorrows([]))
-      .finally(() => setBorrowsLoading(false));
-  }, [member?.id]);
+  const memberId = member?.id ?? "";
+  const { data: borrows = [], loading: borrowsLoading } = useFetch<
+    BorrowRecord[]
+  >(
+    () => (memberId ? apiGetMemberBorrows(memberId) : Promise.resolve([])),
+    [memberId],
+  );
 
   if (!member) return null;
   const active = borrows.filter((b) => !b.returnedAt);

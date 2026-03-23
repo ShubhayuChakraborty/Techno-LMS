@@ -29,6 +29,13 @@ const REQUEST_INCLUDE = {
   },
 };
 
+const normalizeRequestStatus = (request) => {
+  if (request.status === "used") return "approved";
+  if (request.status === "expired") return "declined";
+  if (request.expiresAt < new Date()) return "expired";
+  return "pending";
+};
+
 // ─── Member: create a borrow request ─────────────────────────────────────────
 
 /**
@@ -112,7 +119,87 @@ const createRequest = async (userId, bookId) => {
     data: { code, userId, bookId, expiresAt },
   });
 
-  return { code: request.code, expiresAt: request.expiresAt };
+  return {
+    requestId: request.id,
+    status: "pending",
+    requestedAt: request.createdAt,
+    expiresAt: request.expiresAt,
+  };
+};
+
+const listRequests = async ({
+  page = 1,
+  limit = 20,
+  search = "",
+  status = "pending",
+} = {}) => {
+  const numericPage = Math.max(1, Number(page) || 1);
+  const numericLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+  const skip = (numericPage - 1) * numericLimit;
+
+  await prisma.borrowRequest.updateMany({
+    where: {
+      status: "pending",
+      expiresAt: { lt: new Date() },
+    },
+    data: { status: "expired" },
+  });
+
+  const where = {};
+
+  if (status === "pending") {
+    where.status = "pending";
+    where.expiresAt = { gte: new Date() };
+  } else if (status === "approved") {
+    where.status = "used";
+  } else if (status === "declined") {
+    where.status = "expired";
+  }
+
+  if (search) {
+    where.OR = [
+      { user: { name: { contains: search, mode: "insensitive" } } },
+      {
+        user: {
+          member: {
+            membershipNo: { contains: search, mode: "insensitive" },
+          },
+        },
+      },
+      { book: { title: { contains: search, mode: "insensitive" } } },
+    ];
+  }
+
+  const [total, requests] = await Promise.all([
+    prisma.borrowRequest.count({ where }),
+    prisma.borrowRequest.findMany({
+      where,
+      skip,
+      take: numericLimit,
+      orderBy: { createdAt: "desc" },
+      include: REQUEST_INCLUDE,
+    }),
+  ]);
+
+  const items = requests.map((request) => ({
+    id: request.id,
+    status: normalizeRequestStatus(request),
+    requestedAt: request.createdAt,
+    expiresAt: request.expiresAt,
+    member: {
+      name: request.user.name,
+      membershipNo: request.user.member?.membershipNo ?? null,
+    },
+    book: request.book,
+  }));
+
+  return {
+    items,
+    total,
+    page: numericPage,
+    limit: numericLimit,
+    totalPages: Math.ceil(total / numericLimit),
+  };
 };
 
 // ─── Librarian: look up a request by code ────────────────────────────────────
@@ -246,6 +333,198 @@ const confirmBorrow = async (code, borrowDays) => {
   });
 };
 
+const approveRequest = async (requestId, borrowDays = 14) => {
+  if (!requestId) throw new ApiError(400, "Request ID is required.");
+  if (!borrowDays || borrowDays < 1 || borrowDays > 180) {
+    throw new ApiError(400, "borrowDays must be between 1 and 180.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const request = await tx.borrowRequest.findUnique({
+      where: { id: requestId },
+      include: REQUEST_INCLUDE,
+    });
+
+    if (!request) throw new ApiError(404, "Borrow request not found.");
+    if (request.status !== "pending") {
+      throw new ApiError(409, "Borrow request is no longer pending.");
+    }
+    if (request.expiresAt < new Date()) {
+      await tx.borrowRequest.update({
+        where: { id: request.id },
+        data: { status: "expired" },
+      });
+      throw new ApiError(410, "Borrow request has expired.");
+    }
+
+    const book = await tx.book.findUnique({ where: { id: request.bookId } });
+    if (!book) throw new ApiError(404, "Book not found.");
+    if (book.availableCopies < 1)
+      throw new ApiError(400, "No available copies for this book.");
+
+    const member = await tx.member.findUnique({
+      where: { userId: request.userId },
+    });
+    if (!member) throw new ApiError(404, "Member profile not found.");
+    if (!member.isActive)
+      throw new ApiError(403, "Member account has been deactivated.");
+
+    const borrowLimit = await resolveBorrowLimit(tx, member.id);
+    const activePlan = await resolveActivePlan(tx, member.id);
+
+    if (book.category === PREMIUM_CATEGORY && activePlan !== "max") {
+      throw new ApiError(403, "Premium books are not available for borrowing.");
+    }
+
+    if (member.activeBorrows >= borrowLimit) {
+      throw new ApiError(
+        400,
+        `Member has already reached the limit of ${borrowLimit} active borrows.`,
+      );
+    }
+
+    const duplicate = await tx.borrow.findFirst({
+      where: {
+        userId: request.userId,
+        bookId: request.bookId,
+        returned: false,
+      },
+    });
+    if (duplicate) {
+      throw new ApiError(400, "Member already has this book borrowed.");
+    }
+
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + Number(borrowDays));
+
+    const [borrow] = await Promise.all([
+      tx.borrow.create({
+        data: {
+          userId: request.userId,
+          bookId: request.bookId,
+          borrowRequestId: request.id,
+          dueDate,
+        },
+      }),
+      tx.borrowRequest.update({
+        where: { id: request.id },
+        data: { status: "used" },
+      }),
+      tx.book.update({
+        where: { id: request.bookId },
+        data: { availableCopies: { decrement: 1 } },
+      }),
+      tx.member.update({
+        where: { userId: request.userId },
+        data: {
+          activeBorrows: { increment: 1 },
+          totalBorrows: { increment: 1 },
+        },
+      }),
+    ]);
+
+    return {
+      borrowId: borrow.id,
+      dueDate: borrow.dueDate,
+      requestId: request.id,
+      status: "approved",
+    };
+  });
+};
+
+const declineRequest = async (requestId) => {
+  if (!requestId) throw new ApiError(400, "Request ID is required.");
+
+  const request = await prisma.borrowRequest.findUnique({
+    where: { id: requestId },
+  });
+
+  if (!request) throw new ApiError(404, "Borrow request not found.");
+  if (request.status !== "pending") {
+    throw new ApiError(409, "Borrow request is no longer pending.");
+  }
+
+  const updated = await prisma.borrowRequest.update({
+    where: { id: requestId },
+    data: { status: "expired" },
+  });
+
+  return {
+    id: updated.id,
+    status: "declined",
+    requestedAt: updated.createdAt,
+    expiresAt: updated.expiresAt,
+  };
+};
+
+const getNotificationsForUser = async (userId, role) => {
+  if (!userId || !role) return { items: [], unreadCount: 0 };
+
+  if (role === "admin" || role === "librarian") {
+    const requests = await prisma.borrowRequest.findMany({
+      where: {
+        status: "pending",
+        expiresAt: { gte: new Date() },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            member: { select: { membershipNo: true } },
+          },
+        },
+        book: { select: { id: true, title: true, author: true } },
+      },
+    });
+
+    const items = requests.map((request) => ({
+      id: request.id,
+      type: "borrow_request",
+      title: "New borrow request",
+      message: `${request.user.name} (${request.user.member?.membershipNo ?? "No ID"}) requested \"${request.book.title}\".`,
+      actionUrl: role === "admin" ? "/admin/borrow" : "/librarian/borrow",
+      isUnread: true,
+      createdAt: request.createdAt,
+    }));
+
+    return { items, unreadCount: items.length };
+  }
+
+  const requests = await prisma.borrowRequest.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    include: {
+      book: { select: { id: true, title: true, author: true } },
+      borrow: { select: { createdAt: true } },
+    },
+  });
+
+  const items = requests
+    .filter((request) => request.status !== "pending")
+    .map((request) => {
+      const approved = request.status === "used";
+      return {
+        id: request.id,
+        type: approved ? "borrow_approved" : "borrow_declined",
+        title: approved ? "Borrow request approved" : "Borrow request declined",
+        message: approved
+          ? `Your request for \"${request.book.title}\" has been approved.`
+          : `Your request for \"${request.book.title}\" was declined or expired.`,
+        actionUrl: "/member/borrows",
+        isUnread: true,
+        createdAt: approved
+          ? (request.borrow?.createdAt ?? request.createdAt)
+          : request.createdAt,
+      };
+    });
+
+  return { items, unreadCount: items.length };
+};
+
 // ─── Librarian: return a book ─────────────────────────────────────────────────
 
 /**
@@ -280,7 +559,11 @@ const returnBorrow = async (borrowId) => {
 
 module.exports = {
   createRequest,
+  listRequests,
+  getNotificationsForUser,
   getRequestByCode,
   confirmBorrow,
+  approveRequest,
+  declineRequest,
   returnBorrow,
 };

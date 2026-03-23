@@ -83,6 +83,9 @@ export default function AdminReportsPage() {
       ]);
 
       const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const tableDoc = doc as typeof doc & {
+        lastAutoTable?: { finalY: number };
+      };
       const generatedAt = new Date().toLocaleString();
 
       doc.setFontSize(18);
@@ -112,10 +115,8 @@ export default function AdminReportsPage() {
       });
 
       autoTable(doc, {
-        startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-          .lastAutoTable?.finalY
-          ? (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-              .lastAutoTable!.finalY + 16
+        startY: tableDoc.lastAutoTable?.finalY
+          ? tableDoc.lastAutoTable.finalY + 16
           : 220,
         head: [["Month", "Borrows", "Returns"]],
         body: monthlyData.map((m) => [
@@ -128,10 +129,8 @@ export default function AdminReportsPage() {
       });
 
       autoTable(doc, {
-        startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-          .lastAutoTable?.finalY
-          ? (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-              .lastAutoTable!.finalY + 16
+        startY: tableDoc.lastAutoTable?.finalY
+          ? tableDoc.lastAutoTable.finalY + 16
           : 380,
         head: [["Category", "Books"]],
         body: categoryData.map((c) => [c.name, String(c.value)]),
@@ -140,10 +139,8 @@ export default function AdminReportsPage() {
       });
 
       autoTable(doc, {
-        startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-          .lastAutoTable?.finalY
-          ? (doc as jsPDF & { lastAutoTable?: { finalY: number } })
-              .lastAutoTable!.finalY + 16
+        startY: tableDoc.lastAutoTable?.finalY
+          ? tableDoc.lastAutoTable.finalY + 16
           : 500,
         head: [["#", "Title", "Author", "Borrows"]],
         body: popularBooks

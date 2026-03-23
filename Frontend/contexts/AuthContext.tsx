@@ -36,6 +36,19 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 const SESSION_HINT_KEY = "lms_has_session";
 
+function isPublicAuthPath(path: string) {
+  return (
+    path === "/login" || path === "/register" || path === "/forgot-password"
+  );
+}
+
+function shouldSkipInitialAuthCheck() {
+  if (typeof window === "undefined") return false;
+  const currentPath = window.location.pathname;
+  const hintedSession = window.localStorage.getItem(SESSION_HINT_KEY) === "1";
+  return !hintedSession && isPublicAuthPath(currentPath);
+}
+
 function redirectByRole(role: string, router: ReturnType<typeof useRouter>) {
   if (role === "admin") router.push("/admin/dashboard");
   else if (role === "librarian") router.push("/librarian/dashboard");
@@ -45,32 +58,29 @@ function redirectByRole(role: string, router: ReturnType<typeof useRouter>) {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !shouldSkipInitialAuthCheck());
 
   // On mount: attempt a silent token refresh via the HTTP-only cookie,
   // then load the current user. This re-hydrates auth state after page refreshes.
   useEffect(() => {
+    if (shouldSkipInitialAuthCheck()) {
+      return;
+    }
+
     const currentPath =
       typeof window !== "undefined" ? window.location.pathname : "";
-    const isPublicAuthRoute =
-      currentPath === "/login" ||
-      currentPath === "/register" ||
-      currentPath === "/forgot-password";
+    const isPublicAuthRoute = isPublicAuthPath(currentPath);
 
     const hintedSession =
       typeof window !== "undefined" &&
       window.localStorage.getItem(SESSION_HINT_KEY) === "1";
 
     if (!hintedSession && isPublicAuthRoute) {
-      setLoading(false);
       return;
     }
 
     apiMe()
       .then((u) => {
-        if (!u && typeof window !== "undefined") {
-          window.localStorage.removeItem(SESSION_HINT_KEY);
-        }
         setUser(u);
         setLoading(false);
       })

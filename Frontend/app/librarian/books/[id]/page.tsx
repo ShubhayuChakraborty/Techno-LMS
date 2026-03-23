@@ -247,7 +247,7 @@ function ReadOnlyReviews({ bookId }: { bookId: string }) {
             No reviews yet
           </p>
           <p style={{ color: "var(--muted)", fontSize: 13 }}>
-            Members haven't reviewed this book yet.
+            Members haven&apos;t reviewed this book yet.
           </p>
         </div>
       ) : (

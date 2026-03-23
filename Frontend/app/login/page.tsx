@@ -9,7 +9,7 @@ import { GoogleLogin } from "@react-oauth/google";
 import type { Role } from "@/lib/mockData";
 import { useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const { login, googleLogin } = useAuth();
   const searchParams = useSearchParams();
   const [registered, setRegistered] = useState(false);
@@ -383,5 +383,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <React.Suspense fallback={<div className="auth-page" />}>
+      <LoginPageContent />
+    </React.Suspense>
   );
 }

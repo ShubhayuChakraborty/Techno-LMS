@@ -3,9 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useMemo } from "react";
-import { LogOut, Menu, X, ChevronDown } from "lucide-react";
+import { useState, useEffect } from "react";
+import { LogOut, Menu, X, ChevronDown, Bell } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { normalizeMediaUrl } from "@/lib/utils";
+import { apiGetNotifications, type AppNotification } from "@/lib/api";
 
 interface NavItem {
   href: string;
@@ -22,24 +24,37 @@ export default function Navbar({ items, basePath }: NavbarProps) {
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const profileAvatarUrl =
-    user?.member?.avatarUrl ?? user?.librarian?.avatarUrl;
-  const [avatarUrl, setAvatarUrl] = useState(profileAvatarUrl ?? "");
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const avatarUrl = normalizeMediaUrl(
+    user?.member?.avatarUrl ?? user?.librarian?.avatarUrl ?? "",
+  );
 
   useEffect(() => {
-    // Server URL takes priority; fallback to localStorage for immediate display
-    const serverAvatarUrl =
-      user?.member?.avatarUrl ?? user?.librarian?.avatarUrl;
-    if (serverAvatarUrl) {
-      setAvatarUrl(serverAvatarUrl);
-      // Keep localStorage in sync so it's available instantly on next load
-      if (user.id)
-        localStorage.setItem(`lms_avatar_${user.id}`, serverAvatarUrl);
-    } else if (user?.id) {
-      const stored = localStorage.getItem(`lms_avatar_${user.id}`);
-      setAvatarUrl(stored ?? "");
-    }
-  }, [user?.id, user?.member?.avatarUrl, user?.librarian?.avatarUrl]);
+    if (!user) return;
+    let active = true;
+
+    const loadNotifications = async () => {
+      try {
+        const data = await apiGetNotifications();
+        if (!active) return;
+        setNotifications(data.items);
+        setUnreadCount(data.unreadCount);
+      } catch {
+        if (!active) return;
+        setNotifications([]);
+        setUnreadCount(0);
+      }
+    };
+
+    loadNotifications();
+    const timer = setInterval(loadNotifications, 20000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [user?.id]);
 
   const navItems = items;
 
@@ -129,6 +144,127 @@ export default function Navbar({ items, basePath }: NavbarProps) {
 
         {/* Right: user + logout */}
         <div className="nav-right">
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => setNotifOpen((prev) => !prev)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 34,
+                height: 34,
+                borderRadius: 8,
+                border: "1.5px solid rgba(255,255,255,0.35)",
+                background: "transparent",
+                color: "white",
+                cursor: "pointer",
+                position: "relative",
+              }}
+              title="Notifications"
+            >
+              <Bell size={15} />
+              {unreadCount > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -4,
+                    minWidth: 16,
+                    height: 16,
+                    borderRadius: 999,
+                    background: "#FF3B30",
+                    color: "white",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "0 4px",
+                  }}
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {notifOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: 40,
+                  width: 340,
+                  maxHeight: 380,
+                  overflowY: "auto",
+                  background: "var(--card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+                  zIndex: 200,
+                }}
+              >
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderBottom: "1px solid var(--border)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "var(--heading)",
+                  }}
+                >
+                  Notifications
+                </div>
+
+                {notifications.length === 0 ? (
+                  <div
+                    style={{
+                      padding: 14,
+                      fontSize: 13,
+                      color: "var(--muted)",
+                    }}
+                  >
+                    No notifications yet.
+                  </div>
+                ) : (
+                  notifications.map((notification) => (
+                    <Link
+                      key={notification.id}
+                      href={notification.actionUrl}
+                      onClick={() => setNotifOpen(false)}
+                      style={{
+                        display: "block",
+                        padding: "10px 12px",
+                        borderBottom: "1px solid var(--border)",
+                        textDecoration: "none",
+                        background: "var(--card)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "var(--heading)",
+                          marginBottom: 2,
+                        }}
+                      >
+                        {notification.title}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "var(--muted)",
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {notification.message}
+                      </div>
+                    </Link>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
           {/* User pill */}
           <div
             style={{

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { BorrowRecord } from "@/lib/mockData";
 import { formatDate } from "@/lib/utils";
@@ -27,13 +27,8 @@ export default function MemberProfilePage() {
   const [phone, setPhone] = useState(member?.phone ?? "");
   const [address, setAddress] = useState(member?.address ?? "");
 
-  // Sync local state when user context updates after a profile save
-  useEffect(() => {
-    if (member?.phone !== undefined) setPhone(member.phone ?? "");
-    if (member?.address !== undefined) setAddress(member.address ?? "");
-  }, [member?.phone, member?.address]);
-
   const isSubscribed = false; // Subscriptions removed
+  const currentPlan = "standard";
 
   if (!user || !member) return null;
 

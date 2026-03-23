@@ -13,6 +13,8 @@ import {
   type User,
 } from "./mockData";
 
+export type { BorrowRecord };
+
 // Backend runs on port 4000; set NEXT_PUBLIC_API_URL to override in production
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
 
@@ -22,9 +24,21 @@ const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
 // the access token. The refresh token lives in an HTTP-only cookie.
 // ──────────────────────────────────────────────────────────────────────────────
 let _accessToken: string | null = null;
+const ACCESS_TOKEN_KEY = "lms_access_token";
+
+if (typeof window !== "undefined") {
+  _accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+}
 
 export function setAccessToken(token: string | null) {
   _accessToken = token;
+  if (typeof window !== "undefined") {
+    if (token) {
+      window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+    } else {
+      window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+    }
+  }
 }
 
 export function getAccessToken() {
@@ -267,9 +281,7 @@ export async function apiUpdateProfile(
 export async function apiUploadAvatar(file: File): Promise<string> {
   const formData = new FormData();
   formData.append("avatar", file);
-  const res = await api.post("/upload/avatar", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const res = await api.post("/upload/avatar", formData);
   return (res.data.data as { url: string }).url;
 }
 
@@ -418,9 +430,7 @@ export async function apiSearchBooks(q: string): Promise<Book[]> {
 export async function apiUploadBookCover(file: File): Promise<string> {
   const formData = new FormData();
   formData.append("cover", file);
-  const res = await api.post("/upload/book-cover", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const res = await api.post("/upload/book-cover", formData);
   return (res.data.data as { url: string }).url;
 }
 
@@ -673,11 +683,87 @@ export async function apiGetMemberBorrows(
 // ─── Borrow Code System (member-initiated) ────────────────────────────────────
 
 export async function apiRequestBorrow(bookId: string): Promise<{
-  code: string;
+  requestId: string;
+  status: "pending";
+  requestedAt: string;
   expiresAt: string;
 }> {
   const res = await api.post("/borrow/request", { bookId });
-  return res.data.data as { code: string; expiresAt: string };
+  return res.data.data as {
+    requestId: string;
+    status: "pending";
+    requestedAt: string;
+    expiresAt: string;
+  };
+}
+
+export interface BorrowRequestItem {
+  id: string;
+  status: "pending" | "approved" | "declined" | "expired";
+  requestedAt: string;
+  expiresAt: string;
+  member: {
+    name: string;
+    membershipNo: string | null;
+  };
+  book: {
+    id: string;
+    title: string;
+    author: string;
+  };
+}
+
+export async function apiGetBorrowRequests(params?: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: "pending" | "approved" | "declined" | "all";
+}): Promise<{ items: BorrowRequestItem[]; total: number }> {
+  const res = await api.get("/borrow/requests", { params });
+  const data = res.data.data ?? {};
+  return {
+    items: (data.items ?? []) as BorrowRequestItem[],
+    total: Number(data.total ?? 0),
+  };
+}
+
+export async function apiApproveBorrowRequest(
+  requestId: string,
+  borrowDays = 14,
+): Promise<{ borrowId: string; dueDate: string }> {
+  const res = await api.patch(`/borrow/requests/${requestId}/approve`, {
+    borrowDays,
+  });
+  return res.data.data as { borrowId: string; dueDate: string };
+}
+
+export async function apiDeclineBorrowRequest(
+  requestId: string,
+): Promise<{ id: string; status: string }> {
+  const res = await api.patch(`/borrow/requests/${requestId}/decline`);
+  return res.data.data as { id: string; status: string };
+}
+
+export interface AppNotification {
+  id: string;
+  type: "borrow_request" | "borrow_approved" | "borrow_declined";
+  title: string;
+  message: string;
+  actionUrl: string;
+  isUnread: boolean;
+  createdAt: string;
+}
+
+export async function apiGetNotifications(): Promise<{
+  items: AppNotification[];
+  unreadCount: number;
+}> {
+  const res = await api.get("/borrow/notifications");
+  const data = res.data.data ?? {};
+  return {
+    items: (data.items ?? []) as AppNotification[],
+    unreadCount: Number(data.unreadCount ?? 0),
+  };
 }
 
 export async function apiGetBorrowRequest(code: string): Promise<{

@@ -7,6 +7,7 @@ import {
   AIRecommendation,
   TrendingBook,
 } from "@/lib/api";
+import type { Book } from "@/lib/mockData";
 import IssueModal from "@/components/borrow/IssueModal";
 
 const GRADIENTS = [
@@ -151,11 +152,12 @@ const BookCardSkeleton = React.memo(function BookCardSkeleton() {
 });
 
 export default function MemberRecommendationsPage() {
+  type BorrowableBook = AIRecommendation["book"] | TrendingBook;
   const [recs, setRecs] = useState<AIRecommendation[]>([]);
   const [trending, setTrending] = useState<TrendingBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [issueBook, setIssueBook] = useState<any>(null);
+  const [issueBook, setIssueBook] = useState<Book | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
 
   const load = useCallback(async (isRefresh = false) => {
@@ -179,8 +181,22 @@ export default function MemberRecommendationsPage() {
     load();
   }, [load]);
 
-  const openBorrow = (book: any) => {
-    setIssueBook(book);
+  const openBorrow = (book: BorrowableBook) => {
+    const issueModalBook: Book = {
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      isbn: "N/A",
+      category: book.category,
+      year: new Date().getFullYear(),
+      description: "",
+      totalCopies: book.availableCopies,
+      availableCopies: book.availableCopies,
+      rating: Number(book.rating) || 0,
+      reviewCount: 0,
+      coverUrl: book.coverUrl,
+    };
+    setIssueBook(issueModalBook);
     setIssueOpen(true);
   };
 
@@ -304,7 +320,8 @@ export default function MemberRecommendationsPage() {
               No recommendations yet
             </div>
             <div style={{ fontSize: 13 }}>
-              Borrow a few books and we'll personalise your feed automatically.
+              Borrow a few books and we&apos;ll personalise your feed
+              automatically.
             </div>
           </div>
         ) : (

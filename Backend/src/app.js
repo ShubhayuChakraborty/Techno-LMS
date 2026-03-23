@@ -36,7 +36,21 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (env.allowedOrigins.includes(origin)) return callback(null, true);
+
+      const normalized = origin.toLowerCase();
+      const allowed = env.allowedOrigins
+        .filter(Boolean)
+        .map((item) => item.toLowerCase());
+
+      const isExactAllowed = allowed.includes(normalized);
+      const isTechnoFrontendAlias =
+        /^https:\/\/techno-lms-frontend(?:-[a-z0-9-]+)?\.vercel\.app$/.test(
+          normalized,
+        );
+
+      if (isExactAllowed || isTechnoFrontendAlias) {
+        return callback(null, true);
+      }
       callback(new Error(`CORS: origin '${origin}' is not allowed`));
     },
     credentials: true,

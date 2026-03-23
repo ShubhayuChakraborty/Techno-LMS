@@ -9,7 +9,9 @@ import {
   apiUpdateProfile,
   apiChangePassword,
   apiUploadAvatar,
+  apiMe,
 } from "@/lib/api";
+import { normalizeMediaUrl } from "@/lib/utils";
 
 const AVATAR_COLORS = [
   "#1D7FEC",
@@ -65,13 +67,15 @@ export default function ProfileBase({
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Resolve avatar URL from member or librarian profile
-  const profileAvatarUrl =
-    user?.member?.avatarUrl ?? user?.librarian?.avatarUrl ?? "";
+  const profileAvatarUrl = normalizeMediaUrl(
+    user?.member?.avatarUrl ?? user?.librarian?.avatarUrl ?? "",
+  );
   const profileAvatarColor =
     user?.member?.avatarColor ?? user?.librarian?.avatarColor ?? null;
 
   // Primary: server-stored avatar URL; fallback: localStorage base64 (legacy)
   const [avatar, setAvatar] = useState(profileAvatarUrl);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [avatarColor, setAvatarColor] = useState(
     profileAvatarColor ??
       (user ? getDefaultColor(user.name) : AVATAR_COLORS[0]),
@@ -79,13 +83,19 @@ export default function ProfileBase({
 
   useEffect(() => {
     // Keep avatar in sync when user context updates (e.g. after save)
-    const serverUrl = user?.member?.avatarUrl ?? user?.librarian?.avatarUrl;
+    const serverUrl = normalizeMediaUrl(
+      user?.member?.avatarUrl ?? user?.librarian?.avatarUrl,
+    );
     if (serverUrl) {
       setAvatar(serverUrl);
+      setAvatarLoadFailed(false);
     } else if (user?.id) {
       // Legacy fallback: read from localStorage if no server URL exists yet
       const stored = localStorage.getItem(`lms_avatar_${user.id}`);
-      if (stored) setAvatar(stored);
+      if (stored) {
+        setAvatar(stored);
+        setAvatarLoadFailed(false);
+      }
     }
     const serverColor =
       user?.member?.avatarColor ?? user?.librarian?.avatarColor;
@@ -130,23 +140,28 @@ export default function ProfileBase({
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toastError("Image must be smaller than 2 MB");
+    if (file.size > 10 * 1024 * 1024) {
+      toastError("Image must be smaller than 10 MB");
       return;
     }
     setUploading(true);
     try {
       // Upload to server — the backend saves the file and stores the URL in DB
-      const url = await apiUploadAvatar(file);
+      const url = normalizeMediaUrl(await apiUploadAvatar(file));
       setAvatar(url);
+      setAvatarLoadFailed(false);
       // Store in localStorage as well so Navbar picks it up immediately
       localStorage.setItem(`lms_avatar_${user.id}`, url);
-      // Refresh user context so member.avatarUrl is updated throughout the app
-      const updated = await apiUpdateProfile({ avatarUrl: url });
-      updateUser(updated);
+      // Refresh user context from server after upload
+      const refreshedUser = await apiMe();
+      if (refreshedUser) {
+        updateUser(refreshedUser);
+      }
       toastSuccess("Profile photo updated");
-    } catch {
-      toastError("Failed to upload photo");
+    } catch (error: unknown) {
+      toastError(
+        error instanceof Error ? error.message : "Failed to upload photo",
+      );
     } finally {
       setUploading(false);
     }
@@ -237,10 +252,11 @@ export default function ProfileBase({
             }}
           >
             <div style={{ position: "relative" }}>
-              {avatar ? (
+              {avatar && !avatarLoadFailed ? (
                 <img
                   src={avatar}
                   alt="avatar"
+                  onError={() => setAvatarLoadFailed(true)}
                   style={{
                     width: 88,
                     height: 88,

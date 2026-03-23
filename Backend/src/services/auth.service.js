@@ -183,7 +183,7 @@ const login = async (email, password) => {
 
   const user = await prisma.user.findUnique({
     where: { email },
-    include: { member: true },
+    include: { member: true, librarian: true },
   });
 
   // Constant-time comparison — prevent timing-based enumeration
@@ -227,8 +227,33 @@ const login = async (email, password) => {
       member: user.member
         ? {
             id: user.member.id,
+            name: user.member.name,
+            email: user.member.email,
+            phone: user.member.phone,
+            address: user.member.address,
             membershipNo: user.member.membershipNo,
+            membershipType: user.member.membershipType,
+            expiryDate: user.member.expiryDate,
+            isActive: user.member.isActive,
+            activeBorrows: user.member.activeBorrows,
+            unpaidFines: user.member.unpaidFines,
+            totalBorrows: user.member.totalBorrows,
             avatarColor: user.member.avatarColor,
+            avatarUrl: user.member.avatarUrl,
+            joinedAt: user.member.joinedAt,
+          }
+        : null,
+      librarian: user.librarian
+        ? {
+            id: user.librarian.id,
+            name: user.librarian.name,
+            email: user.librarian.email,
+            phone: user.librarian.phone,
+            address: user.librarian.address,
+            department: user.librarian.department,
+            avatarColor: user.librarian.avatarColor,
+            avatarUrl: user.librarian.avatarUrl,
+            createdAt: user.librarian.createdAt,
           }
         : null,
     },
@@ -509,7 +534,7 @@ const googleAuth = async (idToken) => {
   // Find by googleId first, then fall back to email match for account linking
   let user = await prisma.user.findFirst({
     where: { OR: [{ googleId }, { email }] },
-    include: { member: true },
+    include: { member: true, librarian: true },
   });
 
   if (!user) {
@@ -538,7 +563,7 @@ const googleAuth = async (idToken) => {
 
       return tx.user.findUnique({
         where: { id: newUser.id },
-        include: { member: true },
+        include: { member: true, librarian: true },
       });
     });
   } else if (!user.googleId) {
@@ -546,7 +571,7 @@ const googleAuth = async (idToken) => {
     user = await prisma.user.update({
       where: { id: user.id },
       data: { googleId },
-      include: { member: true },
+      include: { member: true, librarian: true },
     });
   }
 
@@ -576,8 +601,33 @@ const googleAuth = async (idToken) => {
       member: user.member
         ? {
             id: user.member.id,
+            name: user.member.name,
+            email: user.member.email,
+            phone: user.member.phone,
+            address: user.member.address,
             membershipNo: user.member.membershipNo,
+            membershipType: user.member.membershipType,
+            expiryDate: user.member.expiryDate,
+            isActive: user.member.isActive,
+            activeBorrows: user.member.activeBorrows,
+            unpaidFines: user.member.unpaidFines,
+            totalBorrows: user.member.totalBorrows,
             avatarColor: user.member.avatarColor,
+            avatarUrl: user.member.avatarUrl,
+            joinedAt: user.member.joinedAt,
+          }
+        : null,
+      librarian: user.librarian
+        ? {
+            id: user.librarian.id,
+            name: user.librarian.name,
+            email: user.librarian.email,
+            phone: user.librarian.phone,
+            address: user.librarian.address,
+            department: user.librarian.department,
+            avatarColor: user.librarian.avatarColor,
+            avatarUrl: user.librarian.avatarUrl,
+            createdAt: user.librarian.createdAt,
           }
         : null,
     },

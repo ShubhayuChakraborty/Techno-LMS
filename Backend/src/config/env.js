@@ -9,6 +9,13 @@ for (const key of required) {
 }
 
 const nodeEnv = process.env.NODE_ENV || "development";
+const configuredSameSite = (process.env.COOKIE_SAME_SITE || "").toLowerCase();
+const resolvedSameSite =
+  nodeEnv === "production"
+    ? "none"
+    : ["lax", "strict", "none"].includes(configuredSameSite)
+      ? configuredSameSite
+      : "lax";
 
 module.exports = {
   port: parseInt(process.env.PORT || "4000", 10),
@@ -22,9 +29,9 @@ module.exports = {
   },
   cookie: {
     secret: process.env.COOKIE_SECRET || process.env.JWT_REFRESH_SECRET,
-    // Secure cookies only in production; lax SameSite in dev to allow cross-port requests
-    secure: nodeEnv === "production",
-    sameSite: nodeEnv === "production" ? "strict" : "lax",
+    // Cross-origin deployments need SameSite=None + Secure in production.
+    secure: nodeEnv === "production" || resolvedSameSite === "none",
+    sameSite: resolvedSameSite,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
   },
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",

@@ -82,7 +82,7 @@ export function MemberStatusBadge({
   expiryDate?: string;
   isActive: boolean;
 }) {
-  const exp = expiryDate ?? new Date(Date.now() + 30 * 86400000).toISOString();
+  const exp = expiryDate ?? "2099-12-31T00:00:00.000Z";
   const { cls, label } = memberStatusBadge(exp, isActive);
   const variant = cls.replace("badge-", "") as BadgeProps["variant"];
   return <Badge variant={variant} label={label} dot />;

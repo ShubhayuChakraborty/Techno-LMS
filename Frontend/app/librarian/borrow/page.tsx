@@ -6,6 +6,10 @@ import {
   apiGetActiveBorrows,
   apiGetOverdueBorrows,
   apiGetBorrowHistory,
+  apiGetBorrowRequests,
+  apiApproveBorrowRequest,
+  apiDeclineBorrowRequest,
+  type BorrowRequestItem,
 } from "@/lib/api";
 import { BorrowRecord } from "@/lib/mockData";
 import { BorrowStatusBadge } from "@/components/ui/Badge";
@@ -15,14 +19,17 @@ import IssueModal from "@/components/borrow/IssueModal";
 import ReturnModal from "@/components/borrow/ReturnModal";
 import { useFetch } from "@/lib/useFetch";
 import { formatDate, calcFine } from "@/lib/utils";
+import { useToast } from "@/contexts/ToastContext";
 
-type Tab = "active" | "overdue" | "history";
+type Tab = "requests" | "active" | "overdue" | "history";
 
 export default function LibrarianBorrowPage() {
+  const { success, error } = useToast();
   const [tab, setTab] = useState<Tab>("active");
   const [search, setSearch] = useState("");
   const [issueOpen, setIssueOpen] = useState(false);
   const [returnBorrow, setReturnBorrow] = useState<BorrowRecord | null>(null);
+  const [actingRequestId, setActingRequestId] = useState<string | null>(null);
 
   const {
     data: active = [],
@@ -39,25 +46,87 @@ export default function LibrarianBorrowPage() {
     loading: lh,
     refresh: rh,
   } = useFetch<BorrowRecord[]>(() => apiGetBorrowHistory(), []);
+  const {
+    data: requestData,
+    loading: lr,
+    refresh: rr,
+  } = useFetch<{ items: BorrowRequestItem[]; total: number }>(
+    () => apiGetBorrowRequests({ status: "pending", limit: 200 }),
+    [],
+  );
+
+  const requests = requestData?.items ?? [];
 
   const refreshAll = () => {
+    rr();
     ra();
     ro();
     rh();
   };
   const data =
-    tab === "active" ? active : tab === "overdue" ? overdue : history;
-  const loading = tab === "active" ? la : tab === "overdue" ? lo : lh;
+    tab === "active"
+      ? active
+      : tab === "overdue"
+        ? overdue
+        : tab === "history"
+          ? history
+          : [];
+  const loading =
+    tab === "active"
+      ? la
+      : tab === "overdue"
+        ? lo
+        : tab === "history"
+          ? lh
+          : lr;
 
   const filtered = useMemo(() => {
+    if (tab === "requests") {
+      if (!search) return requests;
+      const q = search.toLowerCase();
+      return requests.filter(
+        (r) =>
+          r.member.name.toLowerCase().includes(q) ||
+          (r.member.membershipNo ?? "").toLowerCase().includes(q) ||
+          r.book.title.toLowerCase().includes(q),
+      );
+    }
+
     if (!search) return data;
     const q = search.toLowerCase();
     return data.filter(
       (b) =>
         b.memberName.toLowerCase().includes(q) ||
-        b.bookTitle.toLowerCase().includes(q),
+        b.bookTitle.toLowerCase().includes(q) ||
+        b.membershipNo.toLowerCase().includes(q),
     );
-  }, [data, search]);
+  }, [tab, requests, data, search]);
+
+  const handleApprove = async (requestId: string) => {
+    setActingRequestId(requestId);
+    try {
+      await apiApproveBorrowRequest(requestId, 14);
+      success("Borrow request approved");
+      refreshAll();
+    } catch (e: unknown) {
+      error(e instanceof Error ? e.message : "Failed to approve request");
+    } finally {
+      setActingRequestId(null);
+    }
+  };
+
+  const handleDecline = async (requestId: string) => {
+    setActingRequestId(requestId);
+    try {
+      await apiDeclineBorrowRequest(requestId);
+      success("Borrow request declined");
+      refreshAll();
+    } catch (e: unknown) {
+      error(e instanceof Error ? e.message : "Failed to decline request");
+    } finally {
+      setActingRequestId(null);
+    }
+  };
 
   return (
     <div className="page">
@@ -85,6 +154,7 @@ export default function LibrarianBorrowPage() {
         <div className="filter-tabs" style={{ margin: 0 }}>
           {(
             [
+              ["requests", requests.length],
               ["active", active.length],
               ["overdue", overdue.length],
               ["history", history.length],
@@ -122,7 +192,7 @@ export default function LibrarianBorrowPage() {
           <Search size={15} className="search-icon" />
           <input
             className="search-input"
-            placeholder="Search…"
+            placeholder="Search member ID, name, or book…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -158,6 +228,69 @@ export default function LibrarianBorrowPage() {
             ) : undefined
           }
         />
+      ) : tab === "requests" ? (
+        <div className="card">
+          <div
+            className="table-container"
+            style={{ border: "none", borderRadius: 0 }}
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Book</th>
+                  <th>Requested</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(filtered as BorrowRequestItem[]).map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>
+                        {r.member.name}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        {r.member.membershipNo ?? "—"}
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>
+                        {r.book.title}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        {r.book.author}
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 13 }}>
+                      {formatDate(r.requestedAt)}
+                    </td>
+                    <td>
+                      <div
+                        style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                      >
+                        <button
+                          className="btn btn-primary btn-sm"
+                          disabled={actingRequestId === r.id}
+                          onClick={() => handleApprove(r.id)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          disabled={actingRequestId === r.id}
+                          onClick={() => handleDecline(r.id)}
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
         <div className="card">
           <div
@@ -178,7 +311,7 @@ export default function LibrarianBorrowPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((b) => (
+                {(filtered as BorrowRecord[]).map((b) => (
                   <tr
                     key={b.id}
                     className={tab === "overdue" ? "row-overdue" : ""}

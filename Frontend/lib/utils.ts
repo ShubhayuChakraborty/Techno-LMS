@@ -7,6 +7,41 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function normalizeMediaUrl(url?: string | null): string {
+  if (!url) return "";
+  if (url.startsWith("data:")) return url;
+
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+  const backendOrigin = (() => {
+    try {
+      return new URL(apiBase).origin;
+    } catch {
+      return "";
+    }
+  })();
+
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      const isLocalHost =
+        parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+      if (isLocalHost && backendOrigin) {
+        return `${backendOrigin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch {
+      return url;
+    }
+    return url;
+  }
+
+  if (!url.startsWith("/"))
+    return backendOrigin ? `${backendOrigin}/${url}` : url;
+
+  if (!backendOrigin) return url;
+  return `${backendOrigin}${url}`;
+}
+
 export function formatDate(dateStr: string | Date): string {
   if (!dateStr) return "—";
   const date = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
