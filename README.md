@@ -228,4 +228,4 @@ From backend runtime validation:
 
 ---
 
-Maintained by the Techno-LMS project team.
+Maintained by Shubhayu Chakraborty.
